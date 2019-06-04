@@ -1,0 +1,6 @@
+{
+  "name": "univesp_tcc_backend",
+  "description": "",
+  "image": "heroku/java",
+  "addons": [ ]
+}
