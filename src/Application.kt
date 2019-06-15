@@ -7,15 +7,21 @@ import io.ktor.application.install
 import io.ktor.features.ContentNegotiation
 import io.ktor.gson.gson
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.cio.websocket.CloseReason
 import io.ktor.http.cio.websocket.Frame
+import io.ktor.http.cio.websocket.close
+import io.ktor.http.cio.websocket.readText
 import io.ktor.response.respond
 import io.ktor.response.respondText
 import io.ktor.routing.get
+import io.ktor.routing.post
 import io.ktor.routing.routing
+import io.ktor.websocket.DefaultWebSocketServerSession
 import io.ktor.websocket.webSocket
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Duration
 
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
@@ -40,6 +46,10 @@ fun Application.module() {
             call.respondText("Welcome!")
         }
 
+        get("/health") {
+            call.respond(mapOf("message" to "Server Online"))
+        }
+
         var requestCount = 0
 
         get("/message") {
@@ -51,75 +61,41 @@ fun Application.module() {
             } else {
                 call.respond(HttpStatusCode.NoContent)
             }
-
         }
 
-        webSocket("/messages/three-seconds") {
-            GlobalScope.launch {
-                while (true) {
-                    val frame = incoming.receive()
-                    if (frame is Frame.Text) {
-                        send(Frame.Text(createWebSocketResponse(frame)))
+        post("/message") {
+            call.respond(HttpStatusCode.OK)
+        }
+
+        webSocket("/messages") {
+            for (frame in incoming) {
+                if (frame is Frame.Text) {
+                    when (frame.readText().replace("\"", "")) {
+                        "first" -> createMessageSender(2999)
+                        "second" -> createMessageSender(14999)
+                        "third" -> createMessageSender(29999)
+                        "forth" -> createMessageSender(89999)
+                        "bye" -> close(CloseReason(CloseReason.Codes.NORMAL, "Client said BYE"))
+                        else -> {
+                            if (frame.readText().isNotEmpty()) {
+                                outgoing.send(Frame.Text(createWebSocketResponse()))
+                            }
+                        }
                     }
-                }
-            }
-
-            while (true) {
-                delay(2999)
-                send(Frame.Text(Gson().toJson(mapOf("message" to "This is a chat message"))))
-            }
-        }
-
-        webSocket("/messages/fifteen-seconds") {
-            GlobalScope.launch {
-                while (true) {
-                    delay(14999)
-                    send(Frame.Text(Gson().toJson(mapOf("message" to "This is a chat message"))))
-                }
-            }
-
-            GlobalScope.launch {
-                while (true) {
-                    incoming.receive()
-                    send(Frame.Text(Gson().toJson(mapOf("result" to "Message received"))))
-                }
-            }
-        }
-
-        webSocket("/messages/thirty-seconds") {
-            GlobalScope.launch {
-                while (true) {
-                    delay(29999)
-                    send(Frame.Text(Gson().toJson(mapOf("message" to "This is a chat message"))))
-                }
-            }
-
-            GlobalScope.launch {
-                while (true) {
-                    incoming.receive()
-                    send(Frame.Text(Gson().toJson(mapOf("result" to "Message received"))))
-                }
-            }
-        }
-
-        webSocket("/messages/ninety-seconds") {
-            GlobalScope.launch {
-                while (true) {
-                    delay(89999)
-                    send(Frame.Text(Gson().toJson(mapOf("message" to "This is a chat message"))))
-                }
-            }
-
-            GlobalScope.launch {
-                while (true) {
-                    incoming.receive()
-                    send(Frame.Text(Gson().toJson(mapOf("result" to "Message received"))))
                 }
             }
         }
     }
 }
 
-private fun createWebSocketResponse(frame: Frame) =
-    Gson().toJson(mapOf("result" to "Message received", "message" to "${frame.data}"))
+private fun DefaultWebSocketServerSession.createMessageSender(interval: Long) = launch {
+    withContext(Dispatchers.IO) {
+        while (true) {
+            delay(interval)
+            send(Frame.Text(Gson().toJson(mapOf("message" to "This is a chat message"))))
+        }
+    }
+}
 
+private fun createWebSocketResponse() =
+    Gson().toJson(mapOf("message" to "Message received"))
